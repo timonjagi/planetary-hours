@@ -19,7 +19,6 @@ import {
   scheduleNotification,
 } from '../services/notificationService';
 import {LocalNotifications} from '@capacitor/local-notifications';
-import {Spinner} from '../components/ui/spinner';
 import {useToast} from '../hooks/use-toast';
 
 interface PlanetaryHour {
