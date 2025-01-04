@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">planetary-hours</string>
+    <string name="title_activity_main">planetary-hours</string>
+    <string name="package_name">com.planethours.torus.app</string>
+    <string name="custom_url_scheme">com.planethours.torus.app</string>
+</resources>
