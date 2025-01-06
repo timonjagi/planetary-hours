@@ -2,7 +2,6 @@ import React, {useEffect, useState} from 'react';
 import {Card, CardHeader, CardContent} from '../components/ui/card';
 import {Button} from '../components/ui/button';
 import {Input} from '../components/ui/input';
-import {Tabs, TabsList, TabsTrigger, TabsContent} from '../components/ui/tabs';
 import {
   Container,
   Stack,
@@ -20,11 +19,13 @@ import {
 } from '../services/notificationService';
 import {LocalNotifications} from '@capacitor/local-notifications';
 import {useToast} from '../hooks/use-toast';
-
+import {cn} from '../lib/utils';
+import {Tabs, TabsList, TabsTrigger, TabsContent} from '@radix-ui/react-tabs';
+import {Capacitor} from '@capacitor/core';
 interface PlanetaryHour {
-  Start: string;
-  End: string;
-  Ruler: string;
+  start: string;
+  end: string;
+  ruler: string;
 }
 
 interface Location {
@@ -44,11 +45,40 @@ const App: React.FC = () => {
 
   const getCurrentLocation = async () => {
     try {
-      // For web browsers, we need to check if geolocation is available
-      if (!('geolocation' in navigator)) {
-        throw new Error('Geolocation is not supported by your browser');
+      // Check if Capacitor Geolocation is available
+      if (Capacitor.getPlatform() === 'web') {
+        // Use browser's native geolocation for web
+        if (!('geolocation' in navigator)) {
+          throw new Error('Geolocation is not supported by your browser');
+        }
+
+        return new Promise<Location>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const location = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+              };
+              setLocation(location);
+              resolve(location);
+            },
+            (error) => {
+              toast({
+                description: `Geolocation error: ${error.message}`,
+                variant: 'destructive',
+              });
+              reject(error);
+            },
+            {
+              enableHighAccuracy: true,
+              timeout: 5000,
+              maximumAge: 0,
+            }
+          );
+        });
       }
 
+      // For mobile platforms, use Capacitor Geolocation
       const permissions = await Geolocation.checkPermissions();
       if (
         permissions.location === 'prompt' ||
@@ -63,25 +93,28 @@ const App: React.FC = () => {
       }
 
       const position = await Geolocation.getCurrentPosition();
-      setLocation({
+      const location = {
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
-      });
+      };
+      setLocation(location);
+      return location;
     } catch (error) {
       toast({
-        description: 'Error getting location. Using default coordinates.',
+        description: `Location error: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
         variant: 'destructive',
-        duration: 3000,
       });
-      setLocation({
-        latitude: 30.8774,
-        longitude: -84.2013,
-      });
+      throw error;
     }
   };
 
   const fetchData = async (date: string) => {
-    if (!location) return;
+    if (!location) {
+      console.log('no location');
+      return;
+    }
 
     try {
       setLoading(true);
@@ -90,6 +123,8 @@ const App: React.FC = () => {
         location.latitude,
         location.longitude
       );
+
+      console.log(data);
       setPlanetaryData(data.Response);
       await handleScheduleNotifications();
 
@@ -113,7 +148,7 @@ const App: React.FC = () => {
       await LocalNotifications.cancel({notifications: []});
 
       Object.entries(hours).forEach(async ([hourName, details]) => {
-        const [hours, minutes] = details.Start.split(':');
+        const [hours, minutes] = details.start.split(':');
         const scheduleTime = new Date(selectedDate);
         scheduleTime.setHours(parseInt(hours));
         scheduleTime.setMinutes(parseInt(minutes));
@@ -122,8 +157,8 @@ const App: React.FC = () => {
         // Only schedule if the time is in the future
         if (scheduleTime > new Date()) {
           await scheduleNotification(
-            `${hourName} - ${details.Ruler} Hour`,
-            `The ${details.Ruler} hour begins now and ends at ${details.End}`,
+            `${hourName} - ${details.ruler} Hour`,
+            `The ${details.ruler} hour begins now and ends at ${details.end}`,
             scheduleTime
           );
         }
@@ -145,13 +180,10 @@ const App: React.FC = () => {
     if (!planetaryData) return;
 
     try {
-      // Schedule both solar and lunar hours
-      await scheduleHourNotifications(planetaryData.SolarHours);
-      await scheduleHourNotifications(planetaryData.LunarHours);
-
+      await scheduleHourNotifications(planetaryData.Hours);
       toast({
         description: 'Notifications scheduled for planetary hours',
-        variant: 'destructive',
+        variant: 'default',
         duration: 3000,
       });
     } catch (error) {
@@ -162,7 +194,6 @@ const App: React.FC = () => {
       });
     }
   };
-
   const handleLocationRequest = async () => {
     try {
       // Show loading state
@@ -204,17 +235,43 @@ const App: React.FC = () => {
   }, [selectedDate, location]);
 
   const renderHoursList = (hours: {[key: string]: PlanetaryHour}) => {
-    return Object.entries(hours).map(([hourName, details]) => (
-      <ListItem key={hourName} className='p-4 border-b border-border'>
-        <Stack className='items-start space-y-1'>
-          <Text className='text-primary font-bold'>{hourName}</Text>
-          <Text>
-            {details.Start} - {details.End}
-          </Text>
-          <Text>Ruler: {details.Ruler}</Text>
-        </Stack>
-      </ListItem>
-    ));
+    const now = new Date();
+    const currentTime = now.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'Africa/Nairobi',
+    });
+
+    return Object.entries(hours).map(([hourName, details]) => {
+      const isCurrentHour =
+        details.start <= currentTime && currentTime < details.end;
+
+      return (
+        <ListItem
+          key={hourName}
+          className={cn(
+            'p-4 border-b border-border transition-colors',
+            isCurrentHour && 'bg-primary/10 border-primary'
+          )}
+        >
+          <Stack className='items-start space-y-1'>
+            <Text
+              className={cn(
+                'font-bold',
+                isCurrentHour ? 'text-primary' : 'text-foreground'
+              )}
+            >
+              {hourName} {isCurrentHour && '(Current)'}
+            </Text>
+            <Text>
+              {details.start} - {details.end}
+            </Text>
+            <Text>Ruler: {details.ruler}</Text>
+          </Stack>
+        </ListItem>
+      );
+    });
   };
 
   return (
